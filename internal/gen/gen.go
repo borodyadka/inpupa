@@ -1,7 +1,8 @@
 // Package gen implements generation of the FromRequest method from @input:* annotations.
 //
-// Pipeline: discover packages under the input directory → load types via go/packages →
-// validate E1–E10/W1 → render <basename>.inpupa.gen.go next to each file with annotated structs.
+// Pipeline: discover packages under the input directory → load their types in one go/packages
+// call over the whole tree → validate E1–E10/W1 → render <basename>.inpupa.gen.go next to each
+// file with annotated structs.
 package gen
 
 import (
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // GenFileSuffix — suffix of generated files; kept unique so the generator does not collide with others.
@@ -109,13 +111,24 @@ func Generate(opts Options) (*Result, error) {
 	}
 
 	logf(opts.Verbose, "module %s (root %s)", modPath, modRoot)
+	var rels []string
 	for _, rel := range discoverPackages(abs) {
 		if excluded(rel, opts.Exclude) {
 			continue
 		}
+		rels = append(rels, rel)
+	}
+
+	// One packages.Load for the whole tree: a single `go list` invocation and one load of each
+	// dependency's types, instead of paying both costs once per package.
+	start := time.Now()
+	pkgByDir, loadErr := loadPackages(abs, rels)
+	logf(opts.Verbose, "loaded %d/%d packages in %v", len(pkgByDir), len(rels), time.Since(start).Round(time.Millisecond))
+
+	for _, rel := range rels {
 		dir := filepath.Join(abs, rel)
 		logf(opts.Verbose, "package %s", dir)
-		generatePackage(res, opts, dir)
+		generatePackage(res, opts, dir, pkgByDir[dir], loadErr)
 	}
 	return res, nil
 }

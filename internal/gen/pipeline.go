@@ -6,13 +6,26 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/tools/go/packages"
 )
 
-// generatePackage — generation for a single package: load, validate, write files.
-func generatePackage(res *Result, opts Options, dir string) {
-	pkg, d := loadPackage(dir)
-	if d != nil {
-		res.Diagnostics = append(res.Diagnostics, *d)
+// generatePackage — validation and file writing for an already-loaded package.
+func generatePackage(res *Result, opts Options, dir string, pkg *packages.Package, loadErr error) {
+	if pkg == nil {
+		msg := "failed to load the package"
+		if loadErr != nil {
+			msg = loadErr.Error()
+		}
+		res.Diagnostics = append(res.Diagnostics, Diagnostic{Severity: SevError, Code: "LOAD", File: dir, Message: msg})
+		return
+	}
+	if len(pkg.Errors) > 0 {
+		var msgs []string
+		for _, pe := range pkg.Errors {
+			msgs = append(msgs, pe.Msg)
+		}
+		res.Diagnostics = append(res.Diagnostics, Diagnostic{Severity: SevError, Code: "LOAD", File: dir, Message: "package typing failed: " + strings.Join(msgs, "; ")})
 		return
 	}
 	m := buildModel(pkg)

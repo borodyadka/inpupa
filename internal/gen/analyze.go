@@ -70,26 +70,33 @@ type pkgModel struct {
 	fieldDocLn map[string]map[int]bool   // filename → lines that start a field doc group
 }
 
-// loadPackage loads and types the package in directory dir.
-func loadPackage(dir string) (*packages.Package, *Diagnostic) {
+// loadPackages loads all packages at root-relative dirs rels in a single go/packages call
+// (one `go list` invocation, dependency types shared across the whole tree).
+// Returns absolute dir → package; failed patterns (no Go files, outside the module) are absent.
+func loadPackages(root string, rels []string) (map[string]*packages.Package, error) {
+	byDir := map[string]*packages.Package{}
+	if len(rels) == 0 {
+		return byDir, nil
+	}
 	fset := token.NewFileSet()
-	pkgs, err := packages.Load(&packages.Config{Mode: loadMode, Fset: fset, Dir: dir}, ".")
-	if err != nil || len(pkgs) == 0 {
-		msg := "failed to load the package"
-		if err != nil {
-			msg = err.Error()
+	// A leading "./" makes go list treat a pattern as a filesystem path;
+	// bare relative paths are interpreted as import paths and resolve to nothing.
+	patterns := make([]string, len(rels))
+	for i, rel := range rels {
+		if rel == "." {
+			patterns[i] = "./"
+		} else {
+			patterns[i] = "./" + filepath.ToSlash(rel)
 		}
-		return nil, &Diagnostic{Severity: SevError, Code: "LOAD", File: dir, Message: msg}
 	}
-	pkg := pkgs[0]
-	if len(pkg.Errors) > 0 {
-		var msgs []string
-		for _, pe := range pkg.Errors {
-			msgs = append(msgs, pe.Msg)
+	pkgs, err := packages.Load(&packages.Config{Mode: loadMode, Fset: fset, Dir: root}, patterns...)
+	for _, p := range pkgs {
+		if p == nil || p.Dir == "" {
+			continue
 		}
-		return nil, &Diagnostic{Severity: SevError, Code: "LOAD", File: dir, Message: "package typing failed: " + strings.Join(msgs, "; ")}
+		byDir[p.Dir] = p
 	}
-	return pkg, nil
+	return byDir, err
 }
 
 // buildModel builds the package model.
