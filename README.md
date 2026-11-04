@@ -32,6 +32,12 @@ The file with annotations wires in the generator:
 //go:generate inpupa --input .
 ```
 
+For chi-based services:
+
+```go
+//go:generate inpupa --router=chi --input .
+```
+
 ## Usage
 
 ```sh
@@ -45,12 +51,15 @@ Flags:
 | --- | --- | --- |
 | `--input` | `.` | directory to scan for annotated packages (recursively) |
 | `--exclude` | — | comma-separated directories (relative to `--input`) skipped entirely; may be repeated |
+| `--router` | `builtin` | router backend for path parameter extraction: builtin (stdlib ServeMux) or chi |
 | `--verbose` | off | verbose logging on stderr |
 | `--werror` | off | treat warnings as errors (exit code 1) |
 
 Exit codes: `0` — success; `1` — validation errors (or warnings with `--werror`); `2` — CLI/environment errors.
 
 The generated file `<basename>.inpupa.gen.go` sits next to the source, is deterministic and rewritten only when its content changes.
+
+`--router` selects how path parameters are extracted from the request. The `builtin` backend (default) reads `req.PathValue`, which is populated by stdlib `ServeMux` routing (Go 1.22+); the `chi` backend calls chi's own accessor, because recent chi releases mirror captured params into `PathValue` only as version-dependent behavior of chi, not a contract. With `--router=chi`, each generated file that contains path fields imports `github.com/go-chi/chi/v5` (any chi-based project already has this dependency; files without path fields import nothing extra); all other sources render identically under both backends.
 
 ## Sources
 
@@ -59,7 +68,7 @@ The generated file `<basename>.inpupa.gen.go` sits next to the source, is determ
 | `header` | `// @input:header User-ID` | `req.Header.Get` |
 | `query` | `// @input:query category` | `req.URL.Query()`; slice fields and `mo.Option[[]E]` only here |
 | `cookie` | `// @input:cookie session` | `req.Cookie` |
-| `path` | `// @input:path id` | `req.PathValue` (stdlib `ServeMux` only, Go 1.22+) |
+| `path` | `// @input:path id` | `req.PathValue` for `--router=builtin`, `chi.URLParam` for `--router=chi` |
 | `body[json]` | `// @input:body[json]` | `req.Body` via `encoding/json`; one body per struct |
 
 Scalar source types: `string`, all integers, `float32/64`, `bool` (including named types over them), plus any type with `UnmarshalText` (`time.Time`, user-defined). `*T` — an optional value; `[]E`/`*[]E` — `query` only.
