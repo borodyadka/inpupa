@@ -18,6 +18,7 @@ func TestParse_Valid(t *testing.T) {
 		{"@input:query category", SourceQuery, "category"},
 		{"@input:cookie session", SourceCookie, "session"},
 		{"@input:path id", SourcePath, "id"},
+		{"@input:body", SourceBody, ""},
 		{"@input:body[json]", SourceBodyJSON, ""},
 		// The wire name is a single token without spaces.
 		{"@input:query user-id.v2", SourceQuery, "user-id.v2"},
@@ -52,7 +53,7 @@ func TestParse_Errors(t *testing.T) {
 		{"@input:form x", "E2", "planned"},
 		{"@input:querry x", "E2", `unknown source "querry"`},
 		{"@input:Body x", "E2", `unknown source "Body"`},
-		{"@input:body", "E2", "requires a format in brackets"},
+		{"@input:body extra", "E2", "unexpected token after body"},
 		{"@input:body[json] extra", "E2", "unexpected token after body[<format>]"},
 		{"@input:body[xml]", "E2", `unknown format "xml"`},
 		{"@input:body[json", "E2", "malformed body source"},

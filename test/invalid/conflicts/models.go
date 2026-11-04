@@ -1,6 +1,8 @@
 // Package conflicts — annotation conflicts (E3, E5, E6).
 package conflicts
 
+import "io"
+
 type TwoAnnotations struct {
 	// @input:query a
 	// @input:header b
@@ -21,6 +23,15 @@ type TwoBodies struct {
 
 	// @input:body[json]
 	B2 string // E6: two body fields
+}
+
+// MixedBodies — a decoded body plus a raw stream in one struct (E6).
+type MixedBodies struct {
+	// @input:body[json]
+	J map[string]string
+
+	// @input:body
+	R io.ReadCloser // E6: body[json] and bare body in one struct
 }
 
 // The same name in different sources is allowed (not an error).

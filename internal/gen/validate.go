@@ -109,13 +109,26 @@ func validateStruct(m *pkgModel, curPkg *types.Package, sm *structModel) ([]Diag
 			continue
 		}
 		var cls *fieldClass
-		if dir.IsBody() {
+		if dir.IsBody() && dir.Source != annotation.SourceBody {
 			// body[json]: any type accepted by encoding/json is fine.
 			cls = &fieldClass{elem: fdm.typ}
 			if p, ok := fdm.typ.(*types.Pointer); ok {
 				cls.isPtr = true
 				cls.elem = p.Elem()
 			}
+		} else if dir.IsBody() {
+			// Bare body: raw stream passthrough; the field must be an io.ReadCloser-compatible interface.
+			if msg := bodyStreamIssue(fdm.typ); msg != "" {
+				diags = append(diags, Diagnostic{
+					Severity: SevError, Code: "E4",
+					File: fdm.pos.Filename, Line: fdm.pos.Line, Col: fdm.pos.Column,
+					Struct: sm.name, Field: fdm.goName, Directive: dir.Raw,
+					Message: fmt.Sprintf("type %s: %s", typeString(fdm.typ, curPkg), msg),
+					Hint:    "for JSON decoding of the body use @input:body[json]",
+				})
+				continue
+			}
+			cls = &fieldClass{elem: fdm.typ}
 		} else {
 			var msg string
 			cls, msg = classify(fdm.typ, dir.Source)
@@ -135,7 +148,7 @@ func validateStruct(m *pkgModel, curPkg *types.Package, sm *structModel) ([]Diag
 					Severity: SevError, Code: "E6",
 					File: fdm.pos.Filename, Line: fdm.pos.Line, Col: fdm.pos.Column,
 					Struct: sm.name, Field: fdm.goName, Directive: dir.Raw,
-					Message: fmt.Sprintf("multiple body[...] fields in one struct (first: %s)", sm.fields[bodyIdx].goName),
+					Message: fmt.Sprintf("multiple body fields in one struct (first: %s)", sm.fields[bodyIdx].goName),
 				})
 			} else {
 				bodyIdx = i
@@ -266,6 +279,39 @@ func classify(t types.Type, src annotation.Source) (*fieldClass, string) {
 		return nil, "the field type is not supported for a scalar source. " + supportedTypesMsg
 	}
 	return &fieldClass{kind: k, basic: b, isPtr: isPtr, elem: t}, ""
+}
+
+// rcIface — an interface with exactly the io.ReadCloser methods, for the bare-body type check.
+var rcIface = func() *types.Interface {
+	read := types.NewFunc(0, nil, "Read", types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(types.NewVar(0, nil, "p", types.NewSlice(types.Typ[types.Uint8]))),
+		types.NewTuple(types.NewVar(0, nil, "", types.Typ[types.Int]), types.NewVar(0, nil, "", errType)),
+		false))
+	clos := types.NewFunc(0, nil, "Close", types.NewSignatureType(nil, nil, nil, nil,
+		types.NewTuple(types.NewVar(0, nil, "", errType)), false))
+	return types.NewInterfaceType([]*types.Func{read, clos}, nil)
+}()
+
+// bodyStreamIssue reports why t is not accepted as a bare-body (raw stream) field type, or "" if it is.
+// The accepted shape: an interface (aliases resolve to the same check) implementing io.ReadCloser with no
+// extra methods — exactly the types a req.Body value is statically assignable to.
+func bodyStreamIssue(t types.Type) string {
+	const bad = "the body field must implement io.ReadCloser: only interface types with Read(p []byte) (int, error) and Close() error are accepted"
+	t = derefAlias(t)
+	if _, ok := t.(*types.Pointer); ok {
+		return "pointer fields are not supported for the body source"
+	}
+	iface, ok := t.Underlying().(*types.Interface)
+	if !ok || !types.Implements(t, rcIface) {
+		return bad
+	}
+	for i := 0; i < iface.NumMethods(); i++ {
+		m := iface.Method(i)
+		if m.Name() != "Read" && m.Name() != "Close" {
+			return bad
+		}
+	}
+	return ""
 }
 
 // derefAlias resolves transparent aliases (*types.Alias) to their RHS types. Since Go 1.25 go/types makes

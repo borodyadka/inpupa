@@ -47,6 +47,18 @@ func TestE6_TwoBodies(t *testing.T) {
 	assert.True(t, hasDiag(res.Diagnostics, "E6", "TwoBodies", "B2"))
 }
 
+func TestE6_MixedBodySources(t *testing.T) {
+	res := runGen(t)
+	assert.True(t, hasDiag(res.Diagnostics, "E6", "MixedBodies", "R"))
+	var sawMsg bool
+	for _, d := range res.Diagnostics {
+		if d.Code == "E6" && d.Struct == "MixedBodies" {
+			sawMsg = strings.Contains(d.Message, "multiple body fields in one struct (first: J)")
+		}
+	}
+	assert.True(t, sawMsg, "the E6 message must use the generalized wording")
+}
+
 func TestDifferentSourcesSameNameAllowed(t *testing.T) {
 	res := runGen(t)
 	for _, d := range res.Diagnostics {

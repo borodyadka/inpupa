@@ -70,6 +70,9 @@ The generated file `<basename>.inpupa.gen.go` sits next to the source, is determ
 | `cookie` | `// @input:cookie session` | `req.Cookie` |
 | `path` | `// @input:path id` | `req.PathValue` for `--router=builtin`, `chi.URLParam` for `--router=chi` |
 | `body[json]` | `// @input:body[json]` | `req.Body` via `encoding/json`; one body per struct |
+| `body` | `// @input:body` | `req.Body` raw, no decoding; the field must be an `io.ReadCloser`-shaped interface (Read + Close, nothing else); one body per struct |
+
+Body ownership: `body[json]` methods decode the body and close it themselves. A bare `body` field transfers the stream to the caller — its generated method does NOT emit `defer req.Body.Close()`, so the handler that received the field must read the stream and close it (an unread remainder still blocks keep-alive reuse, like any other unread request body).
 
 Scalar source types: `string`, all integers, `float32/64`, `bool` (including named types over them), plus any type with `UnmarshalText` (`time.Time`, user-defined). `*T` — an optional value; `[]E`/`*[]E` — `query` only.
 

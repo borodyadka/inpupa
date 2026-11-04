@@ -33,7 +33,6 @@ func TestE1_MissingName(t *testing.T) {
 
 func TestE2_BodyForms(t *testing.T) {
 	res := runGen(t)
-	assert.True(t, hasDiag(res.Diagnostics, "E2", "BodyNoBrackets", "B"))
 	assert.True(t, hasDiag(res.Diagnostics, "E2", "BodyExtraToken", "C"))
 	assert.True(t, hasDiag(res.Diagnostics, "E2", "BodyBadFormat", "F"))
 }

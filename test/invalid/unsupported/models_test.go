@@ -89,6 +89,34 @@ func TestE4_BadOptionKindsMessages(t *testing.T) {
 	}
 }
 
+func TestE4_BodyStreamTypes(t *testing.T) {
+	res := runGen(t)
+	assert.True(t, hasDiag(res.Diagnostics, "E4", "BodyStreamKinds", "P"), "pointer")
+	assert.True(t, hasDiag(res.Diagnostics, "E4", "BodyStreamKinds", "R"), "interface without Close")
+	assert.True(t, hasDiag(res.Diagnostics, "E4", "BodyStreamKinds", "S"), "non-interface type")
+	assert.True(t, hasDiag(res.Diagnostics, "E4", "BodyStreamKinds", "E"), "a method beyond Read/Close")
+}
+
+func TestE4_BodyStreamMessages(t *testing.T) {
+	const bad = "the body field must implement io.ReadCloser: only interface types with Read(p []byte) (int, error) and Close() error are accepted"
+	res := runGen(t)
+	wantMsgs := []struct{ field, msg string }{
+		{"P", "type *io.ReadCloser: pointer fields are not supported for the body source"},
+		{"R", "type io.Reader: " + bad},
+		{"S", "type string: " + bad},
+		{"E", "type ExtraIface: " + bad},
+	}
+	for _, w := range wantMsgs {
+		var saw bool
+		for _, d := range res.Diagnostics {
+			if d.Code == "E4" && d.Struct == "BodyStreamKinds" && d.Field == w.field {
+				saw = d.Message == w.msg && d.Hint == "for JSON decoding of the body use @input:body[json]"
+			}
+		}
+		assert.True(t, saw, "field %s: the E4 message must match verbatim", w.field)
+	}
+}
+
 func TestNoOutputOnErrors(t *testing.T) {
 	res := runGen(t)
 	assert.Empty(t, res.Written)

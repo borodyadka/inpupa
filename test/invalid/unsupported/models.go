@@ -1,7 +1,11 @@
 // Package unsupported — unsupported types for scalar sources (E4).
 package unsupported
 
-import "github.com/samber/mo"
+import (
+	"io"
+
+	"github.com/samber/mo"
+)
 
 type BadTypes struct {
 	// @input:header m
@@ -39,4 +43,25 @@ type BadOptionKinds struct {
 
 	// @input:query s
 	S []mo.Option[int] // E4: mo.Option[E] is not supported inside pointers or slices (slice element)
+}
+
+// ExtraIface — an interface with a method beyond io.ReadCloser.
+type ExtraIface interface {
+	io.ReadCloser
+	Flush()
+}
+
+// BodyStreamKinds — unsupported types for the bare body source (E4).
+type BodyStreamKinds struct {
+	// @input:body
+	P *io.ReadCloser // E4: pointer fields are not supported
+
+	// @input:body
+	R io.Reader // E4: no Close method
+
+	// @input:body
+	S string // E4: a non-interface type
+
+	// @input:body
+	E ExtraIface // E4: a method beyond Read/Close
 }

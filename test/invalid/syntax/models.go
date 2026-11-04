@@ -7,11 +7,6 @@ type MissingName struct {
 	A string // E1: no wire name
 }
 
-type BodyNoBrackets struct {
-	// @input:body
-	B string // E2: body without brackets
-}
-
 type BodyExtraToken struct {
 	// @input:body[json] extra
 	C string // E2: extra token after the format

@@ -14,6 +14,7 @@ const (
 	SourceQuery    Source = "query"
 	SourceCookie   Source = "cookie"
 	SourcePath     Source = "path"
+	SourceBody     Source = "body" // the raw request body stream (no decoding)
 	SourceBodyJSON Source = "body[json]"
 )
 
@@ -27,8 +28,8 @@ type Directive struct {
 	Raw    string // original directive line (without "//")
 }
 
-// IsBody reports whether the source is the request body.
-func (d *Directive) IsBody() bool { return d.Source == SourceBodyJSON }
+// IsBody reports whether the source is the request body (the bare stream or a decoded [format]).
+func (d *Directive) IsBody() bool { return d.Source == SourceBody || d.Source == SourceBodyJSON }
 
 // Error — a parse error with a generation code.
 type Error struct {
@@ -81,7 +82,7 @@ func parseScalar(sourceTok string, tokens []string, raw string) (*Directive, *Er
 	switch Source(sourceTok) {
 	case SourceHeader, SourceQuery, SourceCookie, SourcePath:
 	default:
-		hint := "allowed sources: header, query, cookie, path, body[json]"
+		hint := "allowed sources: header, query, cookie, path, body, body[json]"
 		msg := fmt.Sprintf("unknown source %q", sourceTok)
 		if sourceTok == "form" {
 			msg += " (planned)"
@@ -109,13 +110,17 @@ func parseScalar(sourceTok string, tokens []string, raw string) (*Directive, *Er
 
 func parseBody(tokens []string, raw string) (*Directive, *Error) {
 	tok := tokens[0]
-	if tok == "body" {
-		return nil, &Error{
-			Code:      "E2",
-			Directive: raw,
-			Message:   "the body source requires a format in brackets",
-			Hint:      "@input:body[json]",
+	if tok == string(SourceBody) {
+		// Bare body: the raw request stream, no format.
+		if len(tokens) > 1 {
+			return nil, &Error{
+				Code:      "E2",
+				Directive: raw,
+				Message:   "unexpected token after body: no name is accepted",
+				Hint:      "@input:body",
+			}
 		}
+		return &Directive{Source: SourceBody, Raw: raw}, nil
 	}
 	if !strings.HasPrefix(tok, "body[") || !strings.HasSuffix(tok, "]") {
 		return nil, &Error{

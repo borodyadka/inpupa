@@ -258,6 +258,8 @@ func (r *renderer) renderField(v *validStruct, vf *validField) []string {
 	cls := vf.cls
 
 	switch {
+	case d.Source == annotation.SourceBody:
+		return r.renderBodyRaw(S, F)
 	case d.IsBody():
 		return r.renderBody(S, F, cls.isPtr)
 	case cls.isSlice:
@@ -396,6 +398,12 @@ func (r *renderer) renderCookie(S, F string, d *annotation.Directive, cls *field
 	return b
 }
 
+// renderBodyRaw — bare body: the raw request stream. Ownership of req.Body transfers to the caller,
+// so no error handling and no Close here.
+func (r *renderer) renderBodyRaw(S, F string) []string {
+	return []string{fmt.Sprintf("\tm.%s = req.Body", F)}
+}
+
 // renderBody — body[json]. The decode target is always &m.F: for a value field this is *T,
 // for a pointer field it is **T, so json allocates the value itself (empty body → nil without an error).
 func (r *renderer) renderBody(S, F string, isPtr bool) []string {
@@ -428,6 +436,16 @@ func (r *renderer) renderBody(S, F string, isPtr bool) []string {
 	return b
 }
 
+// hasRawBodyField — whether v has a bare body field; such a method must not close req.Body itself.
+func hasRawBodyField(v *validStruct) bool {
+	for _, vf := range v.fields {
+		if vf.dir.Source == annotation.SourceBody {
+			return true
+		}
+	}
+	return false
+}
+
 // receiverName — the method receiver type name; a generic struct repeats ALL its type parameter names in
 // declaration order, no constraints (receivers take names only).
 func receiverName(v *validStruct) string {
@@ -447,7 +465,10 @@ func (r *renderer) renderMethod(v *validStruct) []string {
 	var out []string
 	out = append(out, fmt.Sprintf("func (m *%s) FromRequest(req *http.Request) error {", receiverName(v)))
 	r.useHTTP = true
-	out = append(out, "\tdefer req.Body.Close()")
+	if !hasRawBodyField(v) {
+		// A bare body field transfers req.Body ownership to the caller; closing it here would break that.
+		out = append(out, "\tdefer req.Body.Close()")
+	}
 	for _, vf := range v.fields {
 		out = append(out, "")
 		out = append(out, r.renderField(v, vf)...)
