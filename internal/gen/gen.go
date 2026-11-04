@@ -19,6 +19,7 @@ const GenFileSuffix = ".inpupa.gen.go"
 type Options struct {
 	InputDir string   // root directory to scan
 	Exclude  []string // directories relative to InputDir, skipped entirely
+	Router   Router   // backend for path parameter extraction; zero value renders as builtin, validated by the CLI layer
 	Verbose  bool     // verbose logging on stderr
 }
 

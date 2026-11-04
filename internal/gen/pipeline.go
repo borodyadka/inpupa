@@ -43,7 +43,7 @@ func generatePackage(res *Result, opts Options, dir string) {
 			}
 			continue
 		}
-		r := newRenderer(pkg.Types)
+		r := newRenderer(pkg.Types, opts.Router)
 		content := r.renderFile(pkg.Name, fm, sts)
 		formatted, err := format.Source(content)
 		if err != nil {

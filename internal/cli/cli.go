@@ -18,6 +18,7 @@ func Run(args []string) int {
 	fs.SetOutput(os.Stderr)
 	input := fs.String("input", ".", "directory to scan for annotated packages (recursive)")
 	exclude := fs.StringSlice("exclude", nil, "directories relative to --input to skip entirely (comma-separated, may be repeated)")
+	router := fs.String("router", string(gen.RouterBuiltin), "router backend for path parameter extraction: builtin (stdlib ServeMux) or chi")
 	verbose := fs.Bool("verbose", false, "verbose logging on stderr")
 	werror := fs.Bool("werror", false, "treat warnings as errors (exit code 1)")
 	if err := fs.Parse(args); err != nil {
@@ -27,7 +28,14 @@ func Run(args []string) int {
 		return 2
 	}
 
-	res, err := gen.Generate(gen.Options{InputDir: *input, Exclude: *exclude, Verbose: *verbose})
+	// Validate the backend before any generation runs (SDD-0005 §4): exit 2, no files touched.
+	rt, err := gen.ParseRouter(*router)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "inpupa: %v\n", err)
+		return 2
+	}
+
+	res, err := gen.Generate(gen.Options{InputDir: *input, Exclude: *exclude, Router: rt, Verbose: *verbose})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "inpupa: %v\n", err)
 		return 2

@@ -16,6 +16,7 @@ type imp struct{ path, name string }
 
 type renderer struct {
 	curPkg     *types.Package
+	router     Router
 	imports    map[string]string // path → import name (types from dependent packages)
 	useHTTP    bool
 	useStrconv bool
@@ -25,8 +26,8 @@ type renderer struct {
 	useInpupa  bool
 }
 
-func newRenderer(curPkg *types.Package) *renderer {
-	return &renderer{curPkg: curPkg, imports: map[string]string{}}
+func newRenderer(curPkg *types.Package, router Router) *renderer {
+	return &renderer{curPkg: curPkg, router: router, imports: map[string]string{}}
 }
 
 // tname — a type name for generated code.
@@ -47,15 +48,21 @@ func (r *renderer) tname(t types.Type) string {
 
 // importFor registers an import of the package and returns the name it is available under in the file.
 func (r *renderer) importFor(p *types.Package) string {
-	if n, ok := r.imports[p.Path()]; ok {
+	return r.importName(p.Path(), p.Name())
+}
+
+// importName — resolves an import name for path from a base candidate with the numeric-suffix
+// collision rule and registers it; shared by type imports and backend extra imports.
+func (r *renderer) importName(path, base string) string {
+	if n, ok := r.imports[path]; ok {
 		return n
 	}
-	name := p.Name()
+	name := base
 	i := 2
 	for {
 		conflict := false
-		for usedName, path := range r.imports {
-			if usedName == name && path != p.Path() {
+		for usedName, p := range r.imports {
+			if usedName == name && p != path {
 				conflict = true
 				break
 			}
@@ -63,10 +70,10 @@ func (r *renderer) importFor(p *types.Package) string {
 		if !conflict {
 			break
 		}
-		name = fmt.Sprintf("%s%d", p.Name(), i)
+		name = fmt.Sprintf("%s%d", base, i)
 		i++
 	}
-	r.imports[p.Path()] = name
+	r.imports[path] = name
 	return name
 }
 
@@ -131,7 +138,8 @@ func (r *renderer) valueParse(S, F string, d *annotation.Directive, cls *fieldCl
 	L := strings.Repeat("\t", lvl)
 	var b []string
 	if cls.kind == kindText {
-		b = append(b,
+		b = append(
+			b,
 			fmt.Sprintf("%sif err := m.%s.UnmarshalText([]byte(raw)); err != nil {", L, F),
 			strings.Repeat("\t", lvl+1)+r.scalarErr(S, F, d),
 			L+"}",
@@ -142,7 +150,8 @@ func (r *renderer) valueParse(S, F string, d *annotation.Directive, cls *fieldCl
 		b = append(b, fmt.Sprintf("%sm.%s = %s", L, F, r.stringVal(cls.elem, "raw")))
 		return b
 	}
-	b = append(b,
+	b = append(
+		b,
 		fmt.Sprintf("%spv, err := %s", L, r.strconvCall(cls.basic)),
 		L+"if err != nil {",
 		strings.Repeat("\t", lvl+1)+r.scalarErr(S, F, d),
@@ -188,7 +197,8 @@ func (r *renderer) ptrParse(S, F string, d *annotation.Directive, cls *fieldClas
 	L := strings.Repeat("\t", lvl)
 	var b []string
 	if cls.kind == kindText {
-		b = append(b,
+		b = append(
+			b,
 			fmt.Sprintf("%svar v %s", L, r.tname(cls.elem)),
 			fmt.Sprintf("%sif err := v.UnmarshalText([]byte(raw)); err != nil {", L),
 			strings.Repeat("\t", lvl+1)+r.scalarErr(S, F, d),
@@ -198,13 +208,15 @@ func (r *renderer) ptrParse(S, F string, d *annotation.Directive, cls *fieldClas
 		return b
 	}
 	if cls.basic.Kind() == types.String {
-		b = append(b,
+		b = append(
+			b,
 			fmt.Sprintf("%sv := %s", L, r.stringVal(cls.elem, "raw")),
 			fmt.Sprintf("%sm.%s = &v", L, F),
 		)
 		return b
 	}
-	b = append(b,
+	b = append(
+		b,
 		fmt.Sprintf("%spv, err := %s", L, r.strconvCall(cls.basic)),
 		L+"if err != nil {",
 		strings.Repeat("\t", lvl+1)+r.scalarErr(S, F, d),
@@ -262,7 +274,7 @@ func (r *renderer) renderField(v *validStruct, vf *validField) []string {
 	case d.Source == annotation.SourceHeader:
 		return r.fetchGuard("req.Header.Get("+q(d.Name)+")", S, F, d, cls)
 	case d.Source == annotation.SourcePath:
-		return r.fetchGuard("req.PathValue("+q(d.Name)+")", S, F, d, cls)
+		return r.fetchGuard(r.pathGuard(d.Name), S, F, d, cls)
 	default: // cookie
 		return r.renderCookie(S, F, d, cls)
 	}
@@ -281,7 +293,8 @@ func (r *renderer) fetchGuard(expr, S, F string, d *annotation.Directive, cls *f
 func (r *renderer) fetchLoop(name, S, F string, d *annotation.Directive, cls *fieldClass) []string {
 	var b []string
 	b = append(b, fmt.Sprintf("\tfor _, raw := range req.URL.Query()[%s] {", q(name)))
-	b = append(b,
+	b = append(
+		b,
 		"\t\tif raw == \"\" {",
 		"\t\t\tcontinue",
 		"\t\t}",
@@ -303,7 +316,8 @@ func (r *renderer) parseAt(S, F string, d *annotation.Directive, cls *fieldClass
 func (r *renderer) querySlice(S, F string, d *annotation.Directive, cls *fieldClass) []string {
 	var b []string
 	b = append(b, fmt.Sprintf("\tfor _, raw := range req.URL.Query()[%s] {", q(d.Name)))
-	b = append(b,
+	b = append(
+		b,
 		"\t\tif raw == \"\" {",
 		"\t\t\tcontinue",
 		"\t\t}",
@@ -318,7 +332,8 @@ func (r *renderer) querySlice(S, F string, d *annotation.Directive, cls *fieldCl
 // querySlicePtr — *[]E for query.
 func (r *renderer) querySlicePtr(S, F string, d *annotation.Directive, cls *fieldClass) []string {
 	var b []string
-	b = append(b,
+	b = append(
+		b,
 		fmt.Sprintf("\tif vals := req.URL.Query()[%s]; len(vals) > 0 {", q(d.Name)),
 		fmt.Sprintf("\t\tvar list []%s", r.tname(cls.elem)),
 		"\t\tfor _, raw := range vals {",
@@ -329,7 +344,8 @@ func (r *renderer) querySlicePtr(S, F string, d *annotation.Directive, cls *fiel
 	codes, expr := r.elemParse(S, F, d, cls, 3)
 	b = append(b, codes...)
 	b = append(b, fmt.Sprintf("\t\t\tlist = append(list, %s)", expr))
-	b = append(b,
+	b = append(
+		b,
 		"\t\t}",
 		"\t\tif len(list) > 0 {",
 		fmt.Sprintf("\t\t\tm.%s = &list", F),
@@ -344,7 +360,8 @@ func (r *renderer) querySlicePtr(S, F string, d *annotation.Directive, cls *fiel
 func (r *renderer) querySliceOption(S, F string, d *annotation.Directive, cls *fieldClass) []string {
 	some := r.moSome(cls)
 	var b []string
-	b = append(b,
+	b = append(
+		b,
 		fmt.Sprintf("\tif vals := req.URL.Query()[%s]; len(vals) > 0 {", q(d.Name)),
 		fmt.Sprintf("\t\tvar list []%s", r.tname(cls.elem)),
 		"\t\tfor _, raw := range vals {",
@@ -355,7 +372,8 @@ func (r *renderer) querySliceOption(S, F string, d *annotation.Directive, cls *f
 	codes, expr := r.elemParse(S, F, d, cls, 3)
 	b = append(b, codes...)
 	b = append(b, fmt.Sprintf("\t\t\tlist = append(list, %s)", expr))
-	b = append(b,
+	b = append(
+		b,
 		"\t\t}",
 		"\t\tif len(list) > 0 {",
 		fmt.Sprintf("\t\t\tm.%s = %s(list)", F, some),
@@ -368,7 +386,8 @@ func (r *renderer) querySliceOption(S, F string, d *annotation.Directive, cls *f
 // renderCookie — the cookie source.
 func (r *renderer) renderCookie(S, F string, d *annotation.Directive, cls *fieldClass) []string {
 	var b []string
-	b = append(b,
+	b = append(
+		b,
 		fmt.Sprintf("\tif c, cerr := req.Cookie(%s); cerr == nil {", q(d.Name)),
 		"\t\tif raw := c.Value; raw != \"\" {",
 	)
@@ -384,11 +403,13 @@ func (r *renderer) renderBody(S, F string, isPtr bool) []string {
 	r.useErrors = true
 	r.useIO = true
 	var b []string
-	b = append(b,
+	b = append(
+		b,
 		fmt.Sprintf("\tif err := json.NewDecoder(req.Body).Decode(&m.%s); err != nil {", F),
 	)
 	if isPtr {
-		b = append(b,
+		b = append(
+			b,
 			"\t\tif !errors.Is(err, io.EOF) {",
 			"\t\t\t"+r.bodyErr(S, F),
 			"\t\t}",
@@ -396,7 +417,8 @@ func (r *renderer) renderBody(S, F string, isPtr bool) []string {
 		)
 		return b
 	}
-	b = append(b,
+	b = append(
+		b,
 		"\t\tif errors.Is(err, io.EOF) {",
 		fmt.Sprintf("\t\t\treturn &inpupa.Error{Kind: inpupa.KindBody, Struct: %q, Field: %q, Source: %q, Err: inpupa.ErrEmptyBody}", S, F, "body[json]"),
 		"\t\t}",
