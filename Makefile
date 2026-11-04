@@ -10,7 +10,8 @@ install:
 
 # Generate .inpupa.gen.go files for the test tree (invalid directories are excluded: they contain intentionally broken annotations).
 gen-test: build
-	./bin/inpupa --input test --exclude invalid
+	./bin/inpupa --input test --exclude invalid,integration/chi_router
+	./bin/inpupa --input test/integration/chi_router --router=chi
 
 test: gen-test
 	go test ./...

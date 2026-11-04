@@ -3,6 +3,7 @@ module github.com/borodyadka/inpupa
 go 1.26.0
 
 require (
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/samber/mo v1.17.0
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
